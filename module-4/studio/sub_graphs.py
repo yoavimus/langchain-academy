@@ -44,7 +44,7 @@ fa_builder.add_edge(START, "get_failures")
 fa_builder.add_edge("get_failures", "generate_summary")
 fa_builder.add_edge("generate_summary", END)
 
-# Summarization subgraph
+## Summarization subgraph
 class QuestionSummarizationState(TypedDict):
     cleaned_logs: List[Log]
     qs_summary: str
