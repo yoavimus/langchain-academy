@@ -1,0 +1,10 @@
+{
+    "dockerfile_lines": [],
+    "graphs": {
+      "therapAI_assistant": "../src/therapAI_assistant.py:graph"
+    },
+    "python_version": "3.11",
+    "dependencies": [
+      "."
+    ]
+}
