@@ -12,13 +12,14 @@ from langchain_core.messages import merge_message_runs
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from langchain_openai import ChatOpenAI
+from langchain_gemini import ChatGoogleGenerativeAI
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
-import configuration
+from therapAI_assistant.deployment import configuration
 
 ## Utilities 
 
@@ -138,7 +139,13 @@ class UpdateMemory(TypedDict):
     update_type: Literal['user', 'todo', 'instructions']
 
 # Initialize the model
-model = ChatOpenAI(model="gpt-4o", temperature=0)
+
+use_gemini = True
+if use_gemini:
+    model = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
+else:
+    model = ChatOpenAI(model="gpt-4o", temperature=0)
+
 
 ## Create the Trustcall extractors for updating the user profile and ToDo list
 profile_extractor = create_extractor(
@@ -150,7 +157,7 @@ profile_extractor = create_extractor(
 ## Prompts 
 
 # Chatbot instruction for choosing what to update and what tools to call 
-MODEL_SYSTEM_MESSAGE = """{task_maistro_role} 
+MODEL_SYSTEM_MESSAGE = """{therapai_role} 
 
 You have a long term memory which keeps track of three things:
 1. The user's profile (general information about them) 
@@ -212,7 +219,7 @@ Your current instructions are:
 
 ## Node definitions
 
-def task_mAIstro(state: MessagesState, config: RunnableConfig, store: BaseStore):
+def therapai_assistant(state: MessagesState, config: RunnableConfig, store: BaseStore):
 
     """Load memories from the store and use them to personalize the chatbot's response."""
     
@@ -220,7 +227,7 @@ def task_mAIstro(state: MessagesState, config: RunnableConfig, store: BaseStore)
     configurable = configuration.Configuration.from_runnable_config(config)
     user_id = configurable.user_id
     todo_category = configurable.todo_category
-    task_maistro_role = configurable.task_maistro_role
+    therapai_role = configurable.therapai_role
 
    # Retrieve profile memory from the store
     namespace = ("profile", todo_category, user_id)
@@ -243,7 +250,7 @@ def task_mAIstro(state: MessagesState, config: RunnableConfig, store: BaseStore)
     else:
         instructions = ""
     
-    system_msg = MODEL_SYSTEM_MESSAGE.format(task_maistro_role=task_maistro_role, user_profile=user_profile, todo=todo, instructions=instructions)
+    system_msg = MODEL_SYSTEM_MESSAGE.format(therapai_role=therapai_role, user_profile=user_profile, todo=todo, instructions=instructions)
 
     # Respond using memory as well as the chat history
     response = model.bind_tools([UpdateMemory], parallel_tool_calls=False).invoke([SystemMessage(content=system_msg)]+state["messages"])
@@ -340,10 +347,10 @@ def update_todos(state: MessagesState, config: RunnableConfig, store: BaseStore)
                   r.model_dump(mode="json"),
             )
         
-    # Respond to the tool call made in task_mAIstro, confirming the update    
+    # Respond to the tool call made in therapai_assistant, confirming the update    
     tool_calls = state['messages'][-1].tool_calls
 
-    # Extract the changes made by Trustcall and add the the ToolMessage returned to task_mAIstro
+    # Extract the changes made by Trustcall and add the the ToolMessage returned to therapai_assistant
     todo_update_msg = extract_tool_info(spy.called_tools, tool_name)
     return {"messages": [{"role": "tool", "content": todo_update_msg, "tool_call_id":tool_calls[0]['id']}]}
 
@@ -372,7 +379,7 @@ def update_instructions(state: MessagesState, config: RunnableConfig, store: Bas
     return {"messages": [{"role": "tool", "content": "updated instructions", "tool_call_id":tool_calls[0]['id']}]}
 
 # Conditional edge
-def route_message(state: MessagesState, config: RunnableConfig, store: BaseStore) -> Literal[END, "update_todos", "update_instructions", "update_profile"]:
+def route_message(state: MessagesState, config: RunnableConfig, store: BaseStore) -> Literal["END", "update_todos", "update_instructions", "update_profile"]:
 
     """Reflect on the memories and chat history to decide whether to update the memory collection."""
     message = state['messages'][-1]
@@ -393,17 +400,17 @@ def route_message(state: MessagesState, config: RunnableConfig, store: BaseStore
 builder = StateGraph(MessagesState, config_schema=configuration.Configuration)
 
 # Define the flow of the memory extraction process
-builder.add_node(task_mAIstro)
+builder.add_node(therapai_assistant)
 builder.add_node(update_todos)
 builder.add_node(update_profile)
 builder.add_node(update_instructions)
 
 # Define the flow 
-builder.add_edge(START, "task_mAIstro")
-builder.add_conditional_edges("task_mAIstro", route_message)
-builder.add_edge("update_todos", "task_mAIstro")
-builder.add_edge("update_profile", "task_mAIstro")
-builder.add_edge("update_instructions", "task_mAIstro")
+builder.add_edge(START, "therapai_assistant")
+builder.add_conditional_edges("therapai_assistant", route_message)
+builder.add_edge("update_todos", "therapai_assistant")
+builder.add_edge("update_profile", "therapai_assistant")
+builder.add_edge("update_instructions", "therapai_assistant")
 
 # Compile the graph
 graph = builder.compile()
